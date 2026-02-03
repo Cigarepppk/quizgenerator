@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Quiz Generator</title>
+  <title>AI Quiz Generator (Frontend Only)</title>
+
   <script src="https://cdn.tailwindcss.com"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
 
@@ -41,9 +42,9 @@
 <body class="pale-blue-bg min-h-screen text-slate-800">
   <div id="app" class="max-w-3xl mx-auto px-4 py-12">
     <header class="text-center mb-10">
-      <h1 class="text-4xl font-bold text-blue-900 mb-2">Quiz Generator</h1>
-      <p class="muted">Paste text → get realistic questions (MCQ / True-False / Blank)</p>
-      <div class="mt-4 flex items-center justify-center gap-2">
+      <h1 class="text-4xl font-bold text-blue-900 mb-2">AI Quiz Generator</h1>
+      <p class="muted">Frontend-only • realistic quiz • hard MCQ (near-meaning options)</p>
+      <div class="mt-4 flex flex-wrap items-center justify-center gap-2">
         <span class="tag">MCQ (4 options)</span>
         <span class="tag">True / False</span>
         <span class="tag">Fill in the blank</span>
@@ -56,19 +57,38 @@
         <label class="block text-sm font-semibold mb-2">Paste your paragraph</label>
         <textarea id="quiz-text"
           class="w-full h-56 p-4 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none resize-none"
-          placeholder="Paste at least 2–3 sentences. The better the text, the more realistic the quiz."></textarea>
+          placeholder="Paste 2–6 sentences. The more informative the text, the more realistic the quiz."></textarea>
         <p class="text-xs muted mt-2">
-          Tip: Use clear sentences with important keywords. (Example: biology, history, networking, etc.)
+          Tip: use clear facts/definitions. MCQ choices will be similar, so it feels like ChatGPT.
         </p>
       </div>
 
-      <div class="mb-6">
-        <label class="block text-sm font-semibold mb-2">Number of questions (Max 50)</label>
-        <input type="number" id="quiz-count" value="9" min="3" max="50"
-          class="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none">
-        <p class="text-xs muted mt-2">
-          Questions rotate strictly: <b>MCQ → True/False → Blank</b> (repeat).
-        </p>
+      <div class="grid sm:grid-cols-2 gap-4 mb-6">
+        <div>
+          <label class="block text-sm font-semibold mb-2">Number of questions (Max 50)</label>
+          <input type="number" id="quiz-count" value="9" min="3" max="50"
+            class="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none">
+          <p class="text-xs muted mt-2"><b>Order:</b> MCQ → True/False → Blank (repeat)</p>
+        </div>
+
+        <div class="p-4 rounded-2xl border border-slate-200 bg-white">
+          <div class="flex items-center justify-between mb-2">
+            <div>
+              <div class="text-sm font-semibold">AI Mode (Frontend)</div>
+              <div class="text-xs muted">Uses a small local model for semantic similarity</div>
+            </div>
+            <label class="inline-flex items-center cursor-pointer">
+              <input id="ai-mode" type="checkbox" class="sr-only peer" checked>
+              <div class="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:bg-blue-500 relative transition">
+                <div class="w-5 h-5 bg-white rounded-full absolute top-0.5 left-0.5 peer-checked:left-5 transition"></div>
+              </div>
+            </label>
+          </div>
+          <div class="text-xs muted">
+            Status: <span id="ai-status" class="font-semibold">Loading AI…</span><br>
+            If AI can’t load, it will automatically fall back to smart heuristic mode.
+          </div>
+        </div>
       </div>
 
       <div class="flex flex-col sm:flex-row gap-3">
@@ -138,7 +158,6 @@
         </div>
       </div>
 
-      <!-- REVIEW -->
       <div id="review-view" class="hidden text-left pale-blue-card rounded-2xl p-8 shadow-sm">
         <div class="flex items-center justify-between mb-4">
           <h3 class="text-xl font-bold text-blue-900">Answer Review</h3>
@@ -153,43 +172,46 @@
 
   <div id="toast" class="toast">Saved</div>
 
+  <!-- =========================
+       JS (Frontend-only AI)
+       ========================= -->
   <script>
-    // =========================
+    // -------------------------
     // State
-    // =========================
+    // -------------------------
     let quizData = [];
     let currentIdx = 0;
     let userAnswers = {};
-    let contextMap = {};
 
-    // =========================
-    // Small UX helpers
-    // =========================
+    // Local AI embeddings state
+    let embedder = null;          // will be set by module loader
+    let aiReady = false;
+    let keywordEmbeddings = new Map(); // keyword -> Float32Array
+
+    // -------------------------
+    // UX helpers
+    // -------------------------
     function toast(msg) {
       const t = document.getElementById("toast");
       t.textContent = msg;
       t.classList.add("show");
       setTimeout(() => t.classList.remove("show"), 900);
     }
-
     function showView(v) {
       ["setup-view", "quiz-view", "result-view"].forEach(id => {
         document.getElementById(id).classList.toggle("hidden", id !== v);
       });
-      if (v !== "result-view") {
-        document.getElementById("review-view").classList.add("hidden");
-      }
+      if (v !== "result-view") document.getElementById("review-view").classList.add("hidden");
     }
-
     function insertSample() {
       document.getElementById("quiz-text").value =
-`Photosynthesis is the process by which green plants convert light energy into chemical energy. It occurs mainly in the chloroplasts of leaf cells, where chlorophyll absorbs sunlight. During photosynthesis, plants take in carbon dioxide and water to produce glucose and release oxygen as a byproduct. This process is essential for life on Earth because it supports food chains and maintains atmospheric oxygen.`;
+`Photosynthesis is the process by which green plants convert light energy into chemical energy. It occurs mainly in chloroplasts, where chlorophyll absorbs sunlight. Plants use carbon dioxide and water to produce glucose and release oxygen as a byproduct. This process is essential for life on Earth because it supports food chains and maintains atmospheric oxygen.`;
       toast("Sample text added");
     }
 
-    // =========================
-    // Text processing (realistic + hard MCQ)
-    // =========================
+    // -------------------------
+    // Text utilities
+    // -------------------------
     const STOP = new Set([
       "the","a","an","and","or","but","if","then","than","that","this","these","those",
       "is","am","are","was","were","be","been","being","to","of","in","on","at","by","for","with","as",
@@ -206,11 +228,11 @@
         .replace(/\s+/g, " ")
         .trim();
     }
-
     function shuffle(arr) {
-      return arr.map(v => ({ v, r: Math.random() })).sort((a, b) => a.r - b.r).map(x => x.v);
+      return arr.map(v => ({ v, r: Math.random() }))
+        .sort((a, b) => a.r - b.r)
+        .map(x => x.v);
     }
-
     function uniq(arr) {
       const seen = new Set();
       return arr.filter(x => {
@@ -220,15 +242,6 @@
         return true;
       });
     }
-
-    function tokenize(text) {
-      return (text || "")
-        .toLowerCase()
-        .replace(/[^\p{L}\p{N}\s]/gu, " ")
-        .split(/\s+/)
-        .filter(Boolean);
-    }
-
     function splitSentences(text) {
       return text
         .replace(/\s+/g, " ")
@@ -236,7 +249,6 @@
         .map(s => s.trim())
         .filter(s => s.length >= 25);
     }
-
     function extractKeywords(text) {
       const words = text
         .replace(/[^\p{L}\p{N}\s-]/gu, " ")
@@ -245,17 +257,15 @@
         .filter(w => w.length >= 5)
         .filter(w => !STOP.has(w.toLowerCase()));
 
-      // frequency
       const freq = {};
       for (const w of words) {
         const k = w.toLowerCase();
         freq[k] = (freq[k] || 0) + 1;
       }
 
-      // capitalized terms (often important)
       const caps = uniq((text.match(/\b[A-Z][a-zA-Z]{3,}\b/g) || []));
-
       const uniqueWords = uniq(words);
+
       uniqueWords.sort((a, b) => {
         const fa = freq[a.toLowerCase()] || 0;
         const fb = freq[b.toLowerCase()] || 0;
@@ -263,77 +273,73 @@
         return b.length - a.length;
       });
 
-      return uniq([...caps, ...uniqueWords]);
+      return uniq([...caps, ...uniqueWords]).slice(0, 80);
     }
-
     function containsWord(sentence, word) {
       const w = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       return new RegExp(`\\b${w}\\b`, "i").test(sentence);
     }
-
     function replaceWord(sentence, word, replacement) {
       const w = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       return sentence.replace(new RegExp(`\\b${w}\\b`, "i"), replacement);
     }
 
-    function buildContextMap(sentences, keywords) {
-      const ctx = {};
-      const keySet = new Set(keywords.map(k => norm(k)));
+    // -------------------------
+    // Embeddings similarity (AI MCQ hard mode)
+    // -------------------------
+    function cosineSim(a, b) {
+      let dot = 0, na = 0, nb = 0;
+      const n = Math.min(a.length, b.length);
+      for (let i = 0; i < n; i++) {
+        const x = a[i], y = b[i];
+        dot += x * y;
+        na += x * x;
+        nb += y * y;
+      }
+      return dot / (Math.sqrt(na) * Math.sqrt(nb) + 1e-12);
+    }
 
-      for (const kw of keywords) ctx[norm(kw)] = new Set();
+    async function embedText(text) {
+      // embedder returns a Tensor-ish result; we normalize to Float32Array
+      const out = await embedder(text, { pooling: "mean", normalize: true });
+      // out.data is usually a Float32Array
+      return out.data;
+    }
 
-      for (const s of sentences) {
-        const tokens = tokenize(s).filter(t => t.length >= 3 && !STOP.has(t));
-        const tokenSet = new Set(tokens);
+    async function ensureKeywordEmbeddings(keywords) {
+      keywordEmbeddings.clear();
+      // Only compute if AI mode enabled and embedder ready
+      if (!aiReady || !document.getElementById("ai-mode").checked) return;
 
-        for (const kw of keywords) {
-          const k = norm(kw);
-          if (!k) continue;
-          if (containsWord(s, kw)) {
-            for (const t of tokenSet) {
-              if (!keySet.has(t)) ctx[k].add(t);
-            }
-          }
+      // Keep it light: embed only keywords (max 60)
+      const limited = keywords.slice(0, 60);
+
+      // Embed sequentially to avoid freezing low-end devices
+      for (const kw of limited) {
+        try {
+          const vec = await embedText(kw);
+          keywordEmbeddings.set(kw, vec);
+        } catch (e) {
+          // If embedding fails, we stop AI mode gracefully
+          aiReady = false;
+          setAIStatus("AI failed → fallback mode", false);
+          break;
         }
       }
-      return ctx;
     }
 
-    function jaccard(aSet, bSet) {
-      if (!aSet || !bSet) return 0;
-      let inter = 0;
-      for (const x of aSet) if (bSet.has(x)) inter++;
-      const union = aSet.size + bSet.size - inter;
-      return union === 0 ? 0 : inter / union;
-    }
-
-    function wordShapeScore(a, b) {
-      const A = a.toLowerCase(), B = b.toLowerCase();
-      const lenScore = 1 - Math.min(Math.abs(A.length - B.length), 6) / 6;
-
-      const suffixes = ["tion","sion","ment","ness","ity","ing","ed","al","ive","ous","ize","ise","ship","ism"];
-      let sufScore = 0;
-      for (const suf of suffixes) {
-        if (A.endsWith(suf) && B.endsWith(suf)) { sufScore = 1; break; }
-      }
-      return 0.7 * lenScore + 0.3 * sufScore;
-    }
-
-    function pickSimilarDistractors(correct, keywords, contextMap, n = 3) {
-      const cKey = norm(correct);
-      const cCtx = contextMap[cKey] || new Set();
+    function pickNearMeaningDistractors(correct, keywords, n = 3) {
+      const cVec = keywordEmbeddings.get(correct);
+      if (!cVec) return [];
 
       const scored = [];
       for (const w of keywords) {
-        if (norm(w) === cKey) continue;
-        const wCtx = contextMap[norm(w)] || new Set();
-        const sim = jaccard(cCtx, wCtx);
-        const shape = wordShapeScore(correct, w);
-        const score = (0.75 * sim) + (0.25 * shape);
-        scored.push({ w, score });
+        if (norm(w) === norm(correct)) continue;
+        const v = keywordEmbeddings.get(w);
+        if (!v) continue;
+        scored.push({ w, s: cosineSim(cVec, v) });
       }
-
-      scored.sort((a, b) => b.score - a.score);
+      scored.sort((a, b) => b.s - a.s);
 
       const picks = [];
       const seen = new Set();
@@ -347,9 +353,9 @@
       return picks;
     }
 
-    // =========================
+    // -------------------------
     // Question builders (ONLY 3 TYPES)
-    // =========================
+    // -------------------------
     function buildBlank(sentence, keyword) {
       if (!containsWord(sentence, keyword)) return null;
       return {
@@ -360,10 +366,9 @@
     }
 
     function buildTF(sentence, keyword, keywords) {
-      // True: exact sentence from text
-      // False: swap keyword with a similar keyword (realistic but wrong)
+      // True: exact sentence
+      // False: swap keyword with a near-meaning keyword (AI) or fallback random keyword
       const makeTrue = Math.random() < 0.5;
-
       if (makeTrue) {
         return {
           type: "tf",
@@ -372,9 +377,12 @@
         };
       }
 
-      const alt = pickSimilarDistractors(keyword, keywords, contextMap, 1)[0]
-        || shuffle(keywords.filter(w => norm(w) !== norm(keyword)))[0]
-        || "something";
+      let alt = null;
+      if (aiReady && document.getElementById("ai-mode").checked) {
+        const picks = pickNearMeaningDistractors(keyword, keywords, 1);
+        alt = picks[0] || null;
+      }
+      if (!alt) alt = shuffle(keywords.filter(w => norm(w) !== norm(keyword)))[0] || "something";
 
       const swapped = containsWord(sentence, keyword)
         ? replaceWord(sentence, keyword, alt)
@@ -388,32 +396,37 @@
     }
 
     function buildMCQ(sentence, keyword, keywords) {
-      // Hard mode: distractors are context-similar, so choices look “nearly same meaning”
-      let distractors = pickSimilarDistractors(keyword, keywords, contextMap, 3);
+      // Hard MCQ: 3 distractors near-meaning of correct keyword
+      let distractors = [];
+      const aiOn = aiReady && document.getElementById("ai-mode").checked;
 
+      if (aiOn) {
+        distractors = pickNearMeaningDistractors(keyword, keywords, 3);
+      }
+
+      // fallback if AI is off or not enough distractors
       if (distractors.length < 3) {
         const extra = shuffle(keywords.filter(w => norm(w) !== norm(keyword))).slice(0, 3 - distractors.length);
         distractors = distractors.concat(extra);
       }
 
       const options = shuffle([keyword, ...distractors]).slice(0, 4);
-
       const context = sentence
-        ? sentence.slice(0, 150) + (sentence.length > 150 ? "..." : "")
+        ? sentence.slice(0, 160) + (sentence.length > 160 ? "..." : "")
         : "Choose the most relevant term from the paragraph.";
 
       return {
         type: "mcq",
-        question: "MCQ (hard mode, realistic options):\n" + context + "\n\nWhich term best matches the idea?",
+        question: "MCQ (hard mode: near-meaning options):\n" + context + "\n\nWhich term best matches the idea?",
         options,
         answer: keyword
       };
     }
 
-    // =========================
-    // Main generator (strict: MCQ → TF → BLANK)
-    // =========================
-    function generateQuiz() {
+    // -------------------------
+    // Main generator (strict order MCQ → TF → BLANK)
+    // -------------------------
+    async function generateQuiz() {
       const text = document.getElementById("quiz-text").value.trim();
       const count = Math.min(parseInt(document.getElementById("quiz-count").value || "9", 10), 50);
       const btn = document.getElementById("generate-btn");
@@ -435,83 +448,78 @@
         return;
       }
 
-      // Build context map once for hard MCQ similarity
-      contextMap = buildContextMap(sentences, keywords);
-
       btn.disabled = true;
       btn.innerHTML = '<span class="loader mr-2"></span> Analyzing...';
 
-      setTimeout(() => { btn.innerHTML = '<span class="loader mr-2"></span> Extracting concepts...'; }, 350);
-      setTimeout(() => { btn.innerHTML = '<span class="loader mr-2"></span> Writing questions...'; }, 850);
+      // Prepare AI embeddings (frontend)
+      btn.innerHTML = '<span class="loader mr-2"></span> Preparing AI...';
+      await ensureKeywordEmbeddings(keywords);
 
-      setTimeout(() => {
-        quizData = [];
-        userAnswers = {};
-        currentIdx = 0;
+      // Build questions
+      btn.innerHTML = '<span class="loader mr-2"></span> Writing questions...';
 
-        const usedKeywords = new Set();
-        const usedQuestions = new Set();
-        const types = ["mcq", "tf", "blank"]; // strict 3 types
+      quizData = [];
+      userAnswers = {};
+      currentIdx = 0;
 
-        function add(q) {
-          const k = norm(q.question);
-          if (usedQuestions.has(k)) return false;
-          usedQuestions.add(k);
-          quizData.push(q);
-          return true;
+      const usedKeywords = new Set();
+      const usedQuestions = new Set();
+      const types = ["mcq", "tf", "blank"];
+
+      function add(q) {
+        const k = norm(q.question);
+        if (usedQuestions.has(k)) return false;
+        usedQuestions.add(k);
+        quizData.push(q);
+        return true;
+      }
+
+      let i = 0;
+      let attempts = 0;
+
+      while (i < count && attempts < 800) {
+        attempts++;
+        const type = types[i % 3];
+
+        const kw = keywords[Math.floor(Math.random() * Math.min(keywords.length, 60))];
+        const kwKey = norm(kw);
+        if (!kwKey || usedKeywords.has(kwKey)) continue;
+
+        const candidates = sentences.filter(s => containsWord(s, kw));
+        const sentence = candidates.length
+          ? candidates[Math.floor(Math.random() * candidates.length)]
+          : sentences[Math.floor(Math.random() * sentences.length)];
+
+        let q = null;
+        if (type === "mcq") q = buildMCQ(sentence, kw, keywords);
+        else if (type === "tf") q = buildTF(sentence, kw, keywords);
+        else q = buildBlank(sentence, kw);
+
+        if (!q) continue;
+
+        if (add(q)) {
+          usedKeywords.add(kwKey);
+          i++;
         }
+      }
 
-        let i = 0;
-        let attempts = 0;
-
-        while (i < count && attempts < 700) {
-          attempts++;
-
-          const type = types[i % 3];
-
-          // pick an unused keyword
-          const kw = keywords[Math.floor(Math.random() * Math.min(keywords.length, 80))];
-          const kwKey = norm(kw);
-          if (!kwKey || usedKeywords.has(kwKey)) continue;
-
-          // choose a sentence containing keyword (realistic)
-          const candidates = sentences.filter(s => containsWord(s, kw));
-          const sentence = candidates.length
-            ? candidates[Math.floor(Math.random() * candidates.length)]
-            : sentences[Math.floor(Math.random() * sentences.length)];
-
-          let q = null;
-
-          if (type === "mcq") q = buildMCQ(sentence, kw, keywords);
-          else if (type === "tf") q = buildTF(sentence, kw, keywords);
-          else q = buildBlank(sentence, kw);
-
-          if (!q) continue;
-
-          if (add(q)) {
-            usedKeywords.add(kwKey);
-            i++;
-          }
-        }
-
-        if (quizData.length < 3) {
-          alert("Couldn't generate a good quiz from this text. Try a longer paragraph with clearer key terms.");
-          btn.disabled = false;
-          btn.innerText = "Generate Quiz";
-          return;
-        }
-
-        showView("quiz-view");
-        renderQuestion();
-
+      if (quizData.length < 3) {
+        alert("Could not generate a good quiz from this text. Try a longer paragraph with clearer key terms.");
         btn.disabled = false;
         btn.innerText = "Generate Quiz";
-      }, 1350);
+        return;
+      }
+
+      showView("quiz-view");
+      renderQuestion();
+
+      btn.disabled = false;
+      btn.innerText = "Generate Quiz";
     }
 
-    // =========================
-    // Quiz UI render
-    // =========================
+    // -------------------------
+    // Quiz UI
+    // -------------------------
     function qTypeLabel(t) {
       if (t === "mcq") return "MCQ";
       if (t === "tf") return "True/False";
@@ -527,10 +535,8 @@
       document.getElementById("progress-text").innerText = `Question ${currentIdx + 1} of ${quizData.length}`;
       document.getElementById("qtype-pill").textContent = qTypeLabel(q.type);
 
-      const prevBtn = document.getElementById("prev-btn");
-      const nextBtn = document.getElementById("next-btn");
-      prevBtn.disabled = currentIdx === 0;
-      nextBtn.innerText = currentIdx === quizData.length - 1 ? "Finish Quiz" : "Next Question →";
+      document.getElementById("prev-btn").disabled = currentIdx === 0;
+      document.getElementById("next-btn").innerText = currentIdx === quizData.length - 1 ? "Finish Quiz" : "Next Question →";
 
       let html = `<h3 class="text-xl font-semibold mb-6 whitespace-pre-line">${q.question}</h3>`;
 
@@ -548,9 +554,8 @@
             </button>`;
         });
         html += `</div>`;
-        html += `<p class="text-xs muted mt-4">Tip: All options are similar — choose the best one based on the sentence.</p>`;
-      }
-      else if (q.type === "tf") {
+        html += `<p class="text-xs muted mt-4">Hard mode: options are near-meaning. Use the sentence context.</p>`;
+      } else if (q.type === "tf") {
         html += `<div class="grid grid-cols-2 gap-4">`;
         ["True", "False"].forEach(opt => {
           const active = userAnswers[currentIdx] === opt
@@ -564,9 +569,7 @@
             </button>`;
         });
         html += `</div>`;
-        html += `<p class="text-xs muted mt-4">Tip: If the statement is not exactly supported by the paragraph, choose False.</p>`;
-      }
-      else { // blank
+      } else {
         const val = (userAnswers[currentIdx] || "").replace(/"/g, "&quot;");
         html += `
           <input type="text"
@@ -574,7 +577,6 @@
             value="${val}"
             class="w-full p-4 rounded-xl border-2 border-slate-200 outline-none focus:border-blue-500"
             placeholder="Type the missing word..." />`;
-        html += `<p class="text-xs muted mt-4">Tip: Use the original paragraph to find the missing term.</p>`;
       }
 
       container.innerHTML = html;
@@ -582,19 +584,15 @@
 
     function saveAnswer(val) {
       userAnswers[currentIdx] = val;
-      // For MCQ/TF, re-render to highlight selection
       if (quizData[currentIdx].type !== "blank") renderQuestion();
     }
 
     function nextQuestion() {
-      const q = quizData[currentIdx];
       const ans = userAnswers[currentIdx];
-
       if (!ans || norm(ans) === "") {
         alert("Please answer before continuing.");
         return;
       }
-
       if (currentIdx < quizData.length - 1) {
         currentIdx++;
         renderQuestion();
@@ -617,15 +615,13 @@
       toast("Quiz restarted");
     }
 
-    // =========================
-    // Results + Review (user-friendly)
-    // =========================
+    // -------------------------
+    // Results + Review
+    // -------------------------
     function isCorrect(q, userVal) {
       const ua = norm(userVal);
       const ans = norm(q.answer);
-
       if (q.type === "blank") {
-        // Slightly lenient for blanks
         return ua && (ua === ans || ua.includes(ans) || ans.includes(ua));
       }
       return ua === ans;
@@ -655,34 +651,27 @@
         const box = document.createElement("div");
         box.className = "rounded-2xl border border-slate-200 p-5 bg-white";
 
-        const title = document.createElement("div");
-        title.className = "flex items-start justify-between gap-3 mb-3";
-        title.innerHTML = `
-          <div>
-            <div class="text-sm font-semibold text-slate-900">Q${i + 1} • ${qTypeLabel(q.type)}</div>
-            <div class="text-sm muted whitespace-pre-line mt-1">${q.question}</div>
+        box.innerHTML = `
+          <div class="flex items-start justify-between gap-3 mb-3">
+            <div>
+              <div class="text-sm font-semibold text-slate-900">Q${i + 1} • ${qTypeLabel(q.type)}</div>
+              <div class="text-sm muted whitespace-pre-line mt-1">${q.question}</div>
+            </div>
+            <div class="text-sm font-bold ${ok ? "text-emerald-600" : "text-rose-600"}">
+              ${ok ? "Correct" : "Wrong"}
+            </div>
           </div>
-          <div class="text-sm font-bold ${ok ? "text-emerald-600" : "text-rose-600"}">
-            ${ok ? "Correct" : "Wrong"}
+          <div class="mt-3 grid sm:grid-cols-2 gap-3 text-sm">
+            <div class="rounded-xl border border-slate-200 p-4">
+              <div class="font-semibold mb-1">Your answer</div>
+              <div class="muted">${ua || "—"}</div>
+            </div>
+            <div class="rounded-xl border border-slate-200 p-4">
+              <div class="font-semibold mb-1">Correct answer</div>
+              <div class="muted">${q.answer}</div>
+            </div>
           </div>
         `;
-
-        const body = document.createElement("div");
-        body.className = "mt-3 grid sm:grid-cols-2 gap-3 text-sm";
-
-        const your = document.createElement("div");
-        your.className = "rounded-xl border border-slate-200 p-4";
-        your.innerHTML = `<div class="font-semibold mb-1">Your answer</div><div class="muted">${ua || "—"}</div>`;
-
-        const correct = document.createElement("div");
-        correct.className = "rounded-xl border border-slate-200 p-4";
-        correct.innerHTML = `<div class="font-semibold mb-1">Correct answer</div><div class="muted">${q.answer}</div>`;
-
-        body.appendChild(your);
-        body.appendChild(correct);
-
-        box.appendChild(title);
-        box.appendChild(body);
         list.appendChild(box);
       });
 
@@ -701,6 +690,47 @@
       currentIdx = 0;
       hideReview();
       showView("setup-view");
+    }
+
+    // -------------------------
+    // AI Loader (Frontend-only local model)
+    // -------------------------
+    function setAIStatus(text, ok) {
+      const el = document.getElementById("ai-status");
+      el.textContent = text;
+      el.classList.toggle("text-emerald-600", !!ok);
+      el.classList.toggle("text-rose-600", !ok);
+    }
+
+    // Default UI status
+    setAIStatus("Loading AI…", false);
+
+    // If user toggles AI off, reflect immediately
+    document.addEventListener("change", (e) => {
+      if (e.target && e.target.id === "ai-mode") {
+        if (!e.target.checked) toast("AI mode off (heuristic mode)");
+        else toast("AI mode on");
+      }
+    });
+  </script>
+
+  <!-- Load a small embeddings model (frontend only) -->
+  <script type="module">
+    // This uses Transformers.js in the browser. If it fails, app still works in fallback mode.
+    try {
+      const { pipeline } = await import("https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/dist/transformers.min.js");
+
+      // feature-extraction is for embeddings (semantic similarity)
+      // Model choice is small-ish; good for “near-meaning distractors”.
+      embedder = await pipeline("feature-extraction", "Xenova/all-MiniLM-L6-v2");
+
+      aiReady = true;
+      setAIStatus("AI ready ✅ (local embeddings)", true);
+    } catch (e) {
+      aiReady = false;
+      setAIStatus("AI unavailable → fallback mode", false);
+      // No crash; the app still works.
+      console.warn("AI model load failed, using fallback mode:", e);
     }
   </script>
 </body>
