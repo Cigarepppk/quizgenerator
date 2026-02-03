@@ -1,412 +1,707 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Quiz Generator</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-    <style>
-        body { font-family: 'Inter', sans-serif; }
-        .pale-blue-bg { background-color: #f0f7ff; }
-        .pale-blue-card { background-color: #ffffff; border: 1px solid #e1effe; }
-        .btn-primary { background-color: #3b82f6; color: white; transition: all 0.2s; }
-        .btn-primary:hover { background-color: #2563eb; transform: translateY(-1px); }
-        .loader {
-            border: 3px solid #f3f3f3;
-            border-top: 3px solid #3b82f6;
-            border-radius: 50%;
-            width: 24px;
-            height: 24px;
-            animation: spin 1s linear infinite;
-            display: inline-block;
-            vertical-align: middle;
-        }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Quiz Generator</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+    .pale-blue-bg { background-color: #f0f7ff; }
+    .pale-blue-card { background-color: #ffffff; border: 1px solid #e1effe; }
+    .btn-primary { background-color: #3b82f6; color: white; transition: all 0.2s; }
+    .btn-primary:hover { background-color: #2563eb; transform: translateY(-1px); }
+    .btn-ghost { transition: all 0.2s; }
+    .btn-ghost:hover { background: rgba(15, 23, 42, 0.05); }
+    .loader {
+      border: 3px solid #f3f3f3;
+      border-top: 3px solid #3b82f6;
+      border-radius: 50%;
+      width: 22px;
+      height: 22px;
+      animation: spin 1s linear infinite;
+      display: inline-block;
+      vertical-align: middle;
+    }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    .tag { font-size: 12px; padding: 2px 10px; border-radius: 9999px; border: 1px solid #dbeafe; background: #eff6ff; color: #1d4ed8; }
+    .muted { color: #64748b; }
+    .toast {
+      position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+      background: #0f172a; color: white; padding: 10px 14px; border-radius: 999px;
+      box-shadow: 0 10px 30px rgba(2, 6, 23, 0.25);
+      opacity: 0; pointer-events: none; transition: opacity .2s;
+    }
+    .toast.show { opacity: 1; }
+  </style>
 </head>
+
 <body class="pale-blue-bg min-h-screen text-slate-800">
-    <div id="app" class="max-w-3xl mx-auto px-4 py-12">
-        <header class="text-center mb-12">
-            <h1 class="text-4xl font-bold text-blue-900 mb-2">Quiz Generator</h1>
-            <p class="text-slate-500">Transform any text into a quiz instantly</p>
-        </header>
+  <div id="app" class="max-w-3xl mx-auto px-4 py-12">
+    <header class="text-center mb-10">
+      <h1 class="text-4xl font-bold text-blue-900 mb-2">Quiz Generator</h1>
+      <p class="muted">Paste text → get realistic questions (MCQ / True-False / Blank)</p>
+      <div class="mt-4 flex items-center justify-center gap-2">
+        <span class="tag">MCQ (4 options)</span>
+        <span class="tag">True / False</span>
+        <span class="tag">Fill in the blank</span>
+      </div>
+    </header>
 
-        <div id="setup-view" class="pale-blue-card rounded-2xl p-8 shadow-sm">
-            <div class="mb-6">
-                <label class="block text-sm font-semibold mb-2">Paste your paragraph</label>
-                <textarea id="quiz-text" class="w-full h-48 p-4 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none resize-none" placeholder="Enter text here..."></textarea>
-            </div>
-            <div class="mb-8">
-                <label class="block text-sm font-semibold mb-2">Number of questions (Max 50)</label>
-                <input type="number" id="quiz-count" value="5" min="1" max="50" class="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none">
-            </div>
-            <button onclick="generateQuiz()" id="generate-btn" class="w-full py-4 rounded-xl btn-primary font-bold text-lg shadow-lg shadow-blue-200">
-                Generate Quiz
-            </button>
-        </div>
+    <!-- SETUP -->
+    <div id="setup-view" class="pale-blue-card rounded-2xl p-8 shadow-sm">
+      <div class="mb-6">
+        <label class="block text-sm font-semibold mb-2">Paste your paragraph</label>
+        <textarea id="quiz-text"
+          class="w-full h-56 p-4 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none resize-none"
+          placeholder="Paste at least 2–3 sentences. The better the text, the more realistic the quiz."></textarea>
+        <p class="text-xs muted mt-2">
+          Tip: Use clear sentences with important keywords. (Example: biology, history, networking, etc.)
+        </p>
+      </div>
 
-        <div id="quiz-view" class="hidden">
-            <div class="mb-8 flex justify-between items-end">
-                <div>
-                    <h2 class="text-2xl font-bold text-blue-900">Your Quiz</h2>
-                    <p id="progress-text" class="text-slate-500">Question 1 of 5</p>
-                </div>
-                <div id="progress-bar-container" class="w-32 h-2 bg-slate-200 rounded-full overflow-hidden">
-                    <div id="progress-bar" class="h-full bg-blue-500 w-0 transition-all duration-300"></div>
-                </div>
-            </div>
-            <div id="question-container" class="pale-blue-card rounded-2xl p-8 shadow-md mb-8"></div>
-            <div class="flex justify-between items-center">
-                <button onclick="previousQuestion()" id="prev-btn" class="text-slate-400 font-semibold hover:text-slate-600 disabled:opacity-50">← Previous</button>
-                <button onclick="nextQuestion()" id="next-btn" class="px-8 py-3 rounded-full btn-primary font-bold shadow-md">Next Question →</button>
-            </div>
-        </div>
+      <div class="mb-6">
+        <label class="block text-sm font-semibold mb-2">Number of questions (Max 50)</label>
+        <input type="number" id="quiz-count" value="9" min="3" max="50"
+          class="w-full p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none">
+        <p class="text-xs muted mt-2">
+          Questions rotate strictly: <b>MCQ → True/False → Blank</b> (repeat).
+        </p>
+      </div>
 
-        <div id="result-view" class="hidden text-center">
-            <div class="pale-blue-card rounded-2xl p-12 shadow-lg mb-8">
-                <div class="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-6">
-                    <span class="text-4xl">🏆</span>
-                </div>
-                <h2 class="text-3xl font-bold text-blue-900 mb-2">Quiz Complete!</h2>
-                <div id="score-display" class="text-5xl font-bold text-blue-600 my-6">0%</div>
-                <p id="stats-text" class="text-slate-500 mb-8">You got 0 out of 5 correct</p>
-                <button onclick="resetApp()" class="px-8 py-3 rounded-xl border-2 border-blue-500 text-blue-600 font-bold hover:bg-blue-50 transition-colors">
-                    Try Another Quiz
-                </button>
-            </div>
-        </div>
+      <div class="flex flex-col sm:flex-row gap-3">
+        <button onclick="generateQuiz()" id="generate-btn"
+          class="flex-1 py-4 rounded-xl btn-primary font-bold text-lg shadow-lg shadow-blue-200">
+          Generate Quiz
+        </button>
+        <button onclick="insertSample()" class="sm:w-40 py-4 rounded-xl border border-slate-200 font-semibold btn-ghost">
+          Sample Text
+        </button>
+      </div>
     </div>
-<script>
-let quizData = [];
-let currentIdx = 0;
-let userAnswers = {};
 
-const STOP = new Set([
-  "the","a","an","and","or","but","if","then","than","that","this","these","those",
-  "is","am","are","was","were","be","been","being","to","of","in","on","at","by","for","with","as",
-  "it","its","they","their","them","he","she","his","her","you","your","we","our","us",
-  "from","into","over","under","about","after","before","between","during","without","within",
-  "can","could","should","would","may","might","must","will","shall","do","does","did","also"
-]);
+    <!-- QUIZ -->
+    <div id="quiz-view" class="hidden">
+      <div class="mb-6 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+        <div>
+          <h2 class="text-2xl font-bold text-blue-900">Your Quiz</h2>
+          <p id="progress-text" class="muted">Question 1 of 9</p>
+        </div>
+        <div class="flex items-center gap-3">
+          <div id="qtype-pill" class="tag">MCQ</div>
+          <div id="progress-bar-container" class="w-40 h-2 bg-slate-200 rounded-full overflow-hidden">
+            <div id="progress-bar" class="h-full bg-blue-500 w-0 transition-all duration-300"></div>
+          </div>
+        </div>
+      </div>
 
-function norm(s){
-  return (s||"")
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s]/gu,"")
-    .replace(/\s+/g," ")
-    .trim();
-}
-function shuffle(arr){
-  return arr.map(v=>({v,r:Math.random()})).sort((a,b)=>a.r-b.r).map(x=>x.v);
-}
-function uniq(arr){
-  const seen = new Set();
-  return arr.filter(x=>{
-    const k = norm(x);
-    if(!k || seen.has(k)) return false;
-    seen.add(k);
-    return true;
-  });
-}
+      <div id="question-container" class="pale-blue-card rounded-2xl p-8 shadow-md mb-6"></div>
 
-function splitSentences(text){
-  return text
-    .replace(/\s+/g," ")
-    .split(/(?<=[.!?])\s+|\n+/)
-    .map(s=>s.trim())
-    .filter(s=>s.length >= 25);
-}
+      <div class="flex justify-between items-center">
+        <button onclick="previousQuestion()" id="prev-btn"
+          class="px-4 py-2 rounded-xl text-slate-500 font-semibold btn-ghost disabled:opacity-40 disabled:cursor-not-allowed">
+          ← Previous
+        </button>
 
-function extractKeywords(text){
-  const words = text
-    .replace(/[^\p{L}\p{N}\s-]/gu," ")
-    .split(/\s+/)
-    .map(w=>w.trim())
-    .filter(w=>w.length >= 5)
-    .filter(w=>!STOP.has(w.toLowerCase()));
+        <div class="flex items-center gap-2">
+          <button onclick="restartQuiz()" class="px-4 py-2 rounded-xl border border-slate-200 font-semibold btn-ghost">
+            Restart
+          </button>
+          <button onclick="nextQuestion()" id="next-btn"
+            class="px-8 py-3 rounded-full btn-primary font-bold shadow-md">
+            Next Question →
+          </button>
+        </div>
+      </div>
+    </div>
 
-  const freq = {};
-  for(const w of words){
-    const k = w.toLowerCase();
-    freq[k] = (freq[k]||0) + 1;
-  }
+    <!-- RESULT -->
+    <div id="result-view" class="hidden text-center">
+      <div class="pale-blue-card rounded-2xl p-10 shadow-lg mb-6">
+        <div class="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-6">
+          <span class="text-4xl">🏆</span>
+        </div>
+        <h2 class="text-3xl font-bold text-blue-900 mb-2">Quiz Complete!</h2>
+        <div id="score-display" class="text-5xl font-bold text-blue-600 my-6">0%</div>
+        <p id="stats-text" class="muted mb-6">You got 0 out of 9 correct</p>
 
-  const uniqueWords = uniq(words);
+        <div class="flex flex-col sm:flex-row gap-3 justify-center">
+          <button onclick="showReview()" class="px-8 py-3 rounded-xl btn-primary font-bold shadow-md">
+            Review Answers
+          </button>
+          <button onclick="resetApp()"
+            class="px-8 py-3 rounded-xl border-2 border-blue-500 text-blue-600 font-bold hover:bg-blue-50 transition-colors">
+            Try Another Quiz
+          </button>
+        </div>
+      </div>
 
-  // Sort by frequency then length (important terms first)
-  uniqueWords.sort((a,b)=>{
-    const fa = freq[a.toLowerCase()]||0;
-    const fb = freq[b.toLowerCase()]||0;
-    if(fb!==fa) return fb-fa;
-    return b.length-a.length;
-  });
+      <!-- REVIEW -->
+      <div id="review-view" class="hidden text-left pale-blue-card rounded-2xl p-8 shadow-sm">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-xl font-bold text-blue-900">Answer Review</h3>
+          <button onclick="hideReview()" class="px-4 py-2 rounded-xl border border-slate-200 font-semibold btn-ghost">
+            Close
+          </button>
+        </div>
+        <div id="review-list" class="space-y-4"></div>
+      </div>
+    </div>
+  </div>
 
-  // Also include capitalized terms (often names/important)
-  const caps = uniq((text.match(/\b[A-Z][a-zA-Z]{3,}\b/g) || []));
-  const merged = uniq([...caps, ...uniqueWords]);
+  <div id="toast" class="toast">Saved</div>
 
-  return merged;
-}
+  <script>
+    // =========================
+    // State
+    // =========================
+    let quizData = [];
+    let currentIdx = 0;
+    let userAnswers = {};
+    let contextMap = {};
 
-function containsWord(sentence, word){
-  const w = word.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
-  return new RegExp(`\\b${w}\\b`, "i").test(sentence);
-}
-function replaceWord(sentence, word, replacement){
-  const w = word.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
-  return sentence.replace(new RegExp(`\\b${w}\\b`, "i"), replacement);
-}
-
-function buildBlank(sentence, keyword){
-  if(!containsWord(sentence, keyword)) return null;
-  return {
-    type: "blank",
-    question: "Fill in the blank (from your text):\n" + replaceWord(sentence, keyword, "________"),
-    answer: keyword
-  };
-}
-
-function buildMCQ(sentence, keyword, pool){
-  // MCQ: 4 options (1 correct + 3 realistic distractors from same text)
-  const distractors = pool.filter(w => norm(w) !== norm(keyword)).slice(0, 30);
-  const picks = shuffle(distractors).slice(0, 3);
-  if(picks.length < 3) return null;
-
-  const context = sentence
-    ? sentence.slice(0, 140) + (sentence.length > 140 ? "..." : "")
-    : "Choose the most relevant term from the paragraph.";
-
-  return {
-    type: "mcq",
-    question: "MCQ (AI-style, based on your paragraph):\n" + context + "\n\nWhich term best matches this context?",
-    options: shuffle([keyword, ...picks]),
-    answer: keyword
-  };
-}
-
-function buildTF(sentence, keyword, pool){
-  // True: exact sentence from text
-  // False: swap one important term → looks realistic but becomes false
-  const makeTrue = Math.random() < 0.5;
-
-  if(makeTrue){
-    return {
-      type: "tf",
-      question: `True or False (from your text):\n"${sentence}"`,
-      answer: "True"
-    };
-  }
-
-  // false: replace keyword with another plausible keyword
-  const alt = pool.find(w => norm(w)!==norm(keyword) && w.length>=4) || "something";
-  const swapped = containsWord(sentence, keyword) ? replaceWord(sentence, keyword, alt) : (sentence + " (not stated)");
-  return {
-    type: "tf",
-    question: `True or False (AI modified):\n"${swapped}"`,
-    answer: "False"
-  };
-}
-
-function generateQuiz(){
-  const text = document.getElementById("quiz-text").value.trim();
-  const count = Math.min(parseInt(document.getElementById("quiz-count").value || "5", 10), 50);
-  const btn = document.getElementById("generate-btn");
-
-  if(text.length < 120){
-    alert("Paste a longer paragraph (at least ~120 characters) so the quiz becomes realistic.");
-    return;
-  }
-
-  const sentences = splitSentences(text);
-  if(sentences.length < 2){
-    alert("Please paste at least 2 sentences (use . ! ?).");
-    return;
-  }
-
-  const keywords = extractKeywords(text);
-  if(keywords.length < 6){
-    alert("Not enough key terms found. Paste more informative text.");
-    return;
-  }
-
-  btn.disabled = true;
-  btn.innerHTML = '<span class="loader mr-2"></span> ChatGPT-style generating...';
-
-  setTimeout(() => {
-    quizData = [];
-    userAnswers = {};
-    currentIdx = 0;
-
-    const pool = keywords.slice(0, 50); // important terms only
-    const usedKeywords = new Set();
-    const usedQuestions = new Set();
-
-    function add(q){
-      const k = norm(q.question);
-      if(usedQuestions.has(k)) return false;
-      usedQuestions.add(k);
-      quizData.push(q);
-      return true;
+    // =========================
+    // Small UX helpers
+    // =========================
+    function toast(msg) {
+      const t = document.getElementById("toast");
+      t.textContent = msg;
+      t.classList.add("show");
+      setTimeout(() => t.classList.remove("show"), 900);
     }
 
-    // Force exactly 3 types repeating: MCQ, TF, BLANK
-    const types = ["mcq","tf","blank"];
-
-    let attempts = 0;
-    for(let i=0; i<count && attempts < 500; ){
-      attempts++;
-
-      const type = types[i % 3];
-
-      // pick an unused keyword
-      const kw = keywords[Math.floor(Math.random() * Math.min(keywords.length, 60))];
-      const kwKey = norm(kw);
-      if(!kwKey || usedKeywords.has(kwKey)) continue;
-
-      // pick a sentence that contains keyword (for realism)
-      const candidateSentences = sentences.filter(s => containsWord(s, kw));
-      const sentence = candidateSentences.length
-        ? candidateSentences[Math.floor(Math.random() * candidateSentences.length)]
-        : sentences[Math.floor(Math.random() * sentences.length)];
-
-      let q = null;
-
-      if(type === "blank"){
-        q = buildBlank(sentence, kw);
-        if(!q) continue;
-      } else if(type === "tf"){
-        q = buildTF(sentence, kw, pool);
-      } else { // mcq
-        q = buildMCQ(sentence, kw, pool);
-        if(!q) continue;
-      }
-
-      if(add(q)){
-        usedKeywords.add(kwKey);
-        i++;
+    function showView(v) {
+      ["setup-view", "quiz-view", "result-view"].forEach(id => {
+        document.getElementById(id).classList.toggle("hidden", id !== v);
+      });
+      if (v !== "result-view") {
+        document.getElementById("review-view").classList.add("hidden");
       }
     }
 
-    if(!quizData.length){
-      alert("Could not generate realistic questions. Try a longer paragraph with clear information.");
-      btn.disabled = false;
-      btn.innerText = "Generate Quiz";
-      return;
+    function insertSample() {
+      document.getElementById("quiz-text").value =
+`Photosynthesis is the process by which green plants convert light energy into chemical energy. It occurs mainly in the chloroplasts of leaf cells, where chlorophyll absorbs sunlight. During photosynthesis, plants take in carbon dioxide and water to produce glucose and release oxygen as a byproduct. This process is essential for life on Earth because it supports food chains and maintains atmospheric oxygen.`;
+      toast("Sample text added");
     }
 
-    showView("quiz-view");
-    renderQuestion();
+    // =========================
+    // Text processing (realistic + hard MCQ)
+    // =========================
+    const STOP = new Set([
+      "the","a","an","and","or","but","if","then","than","that","this","these","those",
+      "is","am","are","was","were","be","been","being","to","of","in","on","at","by","for","with","as",
+      "it","its","they","their","them","he","she","his","her","you","your","we","our","us",
+      "from","into","over","under","about","after","before","between","during","without","within",
+      "can","could","should","would","may","might","must","will","shall","do","does","did",
+      "also","such","more","most","many","some","any","each","other"
+    ]);
 
-    btn.disabled = false;
-    btn.innerText = "Generate Quiz";
-  }, 900);
-}
-
-// ---------- Render ----------
-function renderQuestion(){
-  const q = quizData[currentIdx];
-  const container = document.getElementById("question-container");
-
-  const progress = ((currentIdx + 1) / quizData.length) * 100;
-  document.getElementById("progress-bar").style.width = progress + "%";
-  document.getElementById("progress-text").innerText = `Question ${currentIdx+1} of ${quizData.length}`;
-  document.getElementById("prev-btn").disabled = currentIdx === 0;
-  document.getElementById("next-btn").innerText = currentIdx === quizData.length - 1 ? "Finish Quiz" : "Next Question →";
-
-  let html = `<h3 class="text-xl font-semibold mb-6 whitespace-pre-line">${q.question}</h3>`;
-
-  if(q.type === "mcq"){
-    html += `<div class="space-y-3">`;
-    q.options.forEach(opt=>{
-      const active = userAnswers[currentIdx] === opt ? "bg-blue-50 border-blue-500" : "border-slate-200 hover:bg-slate-50";
-      html += `
-        <button type="button" onclick="saveAnswer(${JSON.stringify(opt)})"
-          class="w-full text-left p-4 rounded-xl border-2 transition-all ${active}">
-          ${opt}
-        </button>`;
-    });
-    html += `</div>`;
-  }
-  else if(q.type === "tf"){
-    html += `<div class="grid grid-cols-2 gap-4">`;
-    ["True","False"].forEach(opt=>{
-      const active = userAnswers[currentIdx] === opt ? "bg-blue-50 border-blue-500" : "border-slate-200 hover:bg-slate-50";
-      html += `
-        <button type="button" onclick="saveAnswer(${JSON.stringify(opt)})"
-          class="p-8 rounded-xl border-2 text-center font-bold transition-all ${active}">
-          ${opt}
-        </button>`;
-    });
-    html += `</div>`;
-  }
-  else { // blank
-    html += `
-      <input type="text" oninput="saveAnswer(this.value)"
-        value="${(userAnswers[currentIdx] || "").replace(/"/g,"&quot;")}"
-        class="w-full p-4 rounded-xl border-2 border-slate-200 outline-none focus:border-blue-500"
-        placeholder="Type the missing word..." />`;
-  }
-
-  container.innerHTML = html;
-}
-
-function saveAnswer(val){
-  userAnswers[currentIdx] = val;
-  if(quizData[currentIdx].type !== "blank") renderQuestion();
-}
-
-function nextQuestion(){
-  if(!userAnswers[currentIdx] || norm(userAnswers[currentIdx]) === ""){
-    alert("Please answer before continuing.");
-    return;
-  }
-  if(currentIdx < quizData.length - 1){
-    currentIdx++;
-    renderQuestion();
-  } else {
-    showResults();
-  }
-}
-function previousQuestion(){
-  if(currentIdx > 0){
-    currentIdx--;
-    renderQuestion();
-  }
-}
-
-function showResults(){
-  let score = 0;
-  quizData.forEach((q,i)=>{
-    const ua = norm(userAnswers[i]);
-    const ans = norm(q.answer);
-
-    // blanks: a little lenient, like ChatGPT
-    if(q.type === "blank"){
-      if(ua && (ua === ans || ua.includes(ans) || ans.includes(ua))) score++;
-    } else {
-      if(ua === ans) score++;
+    function norm(s) {
+      return (s || "")
+        .toLowerCase()
+        .replace(/[^\p{L}\p{N}\s]/gu, "")
+        .replace(/\s+/g, " ")
+        .trim();
     }
-  });
 
-  const p = Math.round((score / quizData.length) * 100);
-  document.getElementById("score-display").innerText = p + "%";
-  document.getElementById("stats-text").innerText = `You got ${score} out of ${quizData.length} correct`;
-  showView("result-view");
-}
+    function shuffle(arr) {
+      return arr.map(v => ({ v, r: Math.random() })).sort((a, b) => a.r - b.r).map(x => x.v);
+    }
 
-function showView(v){
-  ["setup-view","quiz-view","result-view"].forEach(id=>{
-    document.getElementById(id).classList.toggle("hidden", id !== v);
-  });
-}
-function resetApp(){
-  document.getElementById("quiz-text").value = "";
-  showView("setup-view");
-}
-</script>
+    function uniq(arr) {
+      const seen = new Set();
+      return arr.filter(x => {
+        const k = norm(x);
+        if (!k || seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      });
+    }
 
+    function tokenize(text) {
+      return (text || "")
+        .toLowerCase()
+        .replace(/[^\p{L}\p{N}\s]/gu, " ")
+        .split(/\s+/)
+        .filter(Boolean);
+    }
 
+    function splitSentences(text) {
+      return text
+        .replace(/\s+/g, " ")
+        .split(/(?<=[.!?])\s+|\n+/)
+        .map(s => s.trim())
+        .filter(s => s.length >= 25);
+    }
 
+    function extractKeywords(text) {
+      const words = text
+        .replace(/[^\p{L}\p{N}\s-]/gu, " ")
+        .split(/\s+/)
+        .map(w => w.trim())
+        .filter(w => w.length >= 5)
+        .filter(w => !STOP.has(w.toLowerCase()));
+
+      // frequency
+      const freq = {};
+      for (const w of words) {
+        const k = w.toLowerCase();
+        freq[k] = (freq[k] || 0) + 1;
+      }
+
+      // capitalized terms (often important)
+      const caps = uniq((text.match(/\b[A-Z][a-zA-Z]{3,}\b/g) || []));
+
+      const uniqueWords = uniq(words);
+      uniqueWords.sort((a, b) => {
+        const fa = freq[a.toLowerCase()] || 0;
+        const fb = freq[b.toLowerCase()] || 0;
+        if (fb !== fa) return fb - fa;
+        return b.length - a.length;
+      });
+
+      return uniq([...caps, ...uniqueWords]);
+    }
+
+    function containsWord(sentence, word) {
+      const w = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return new RegExp(`\\b${w}\\b`, "i").test(sentence);
+    }
+
+    function replaceWord(sentence, word, replacement) {
+      const w = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return sentence.replace(new RegExp(`\\b${w}\\b`, "i"), replacement);
+    }
+
+    function buildContextMap(sentences, keywords) {
+      const ctx = {};
+      const keySet = new Set(keywords.map(k => norm(k)));
+
+      for (const kw of keywords) ctx[norm(kw)] = new Set();
+
+      for (const s of sentences) {
+        const tokens = tokenize(s).filter(t => t.length >= 3 && !STOP.has(t));
+        const tokenSet = new Set(tokens);
+
+        for (const kw of keywords) {
+          const k = norm(kw);
+          if (!k) continue;
+          if (containsWord(s, kw)) {
+            for (const t of tokenSet) {
+              if (!keySet.has(t)) ctx[k].add(t);
+            }
+          }
+        }
+      }
+      return ctx;
+    }
+
+    function jaccard(aSet, bSet) {
+      if (!aSet || !bSet) return 0;
+      let inter = 0;
+      for (const x of aSet) if (bSet.has(x)) inter++;
+      const union = aSet.size + bSet.size - inter;
+      return union === 0 ? 0 : inter / union;
+    }
+
+    function wordShapeScore(a, b) {
+      const A = a.toLowerCase(), B = b.toLowerCase();
+      const lenScore = 1 - Math.min(Math.abs(A.length - B.length), 6) / 6;
+
+      const suffixes = ["tion","sion","ment","ness","ity","ing","ed","al","ive","ous","ize","ise","ship","ism"];
+      let sufScore = 0;
+      for (const suf of suffixes) {
+        if (A.endsWith(suf) && B.endsWith(suf)) { sufScore = 1; break; }
+      }
+      return 0.7 * lenScore + 0.3 * sufScore;
+    }
+
+    function pickSimilarDistractors(correct, keywords, contextMap, n = 3) {
+      const cKey = norm(correct);
+      const cCtx = contextMap[cKey] || new Set();
+
+      const scored = [];
+      for (const w of keywords) {
+        if (norm(w) === cKey) continue;
+        const wCtx = contextMap[norm(w)] || new Set();
+        const sim = jaccard(cCtx, wCtx);
+        const shape = wordShapeScore(correct, w);
+        const score = (0.75 * sim) + (0.25 * shape);
+        scored.push({ w, score });
+      }
+
+      scored.sort((a, b) => b.score - a.score);
+
+      const picks = [];
+      const seen = new Set();
+      for (const item of scored) {
+        const k = norm(item.w);
+        if (!k || seen.has(k)) continue;
+        seen.add(k);
+        picks.push(item.w);
+        if (picks.length >= n) break;
+      }
+      return picks;
+    }
+
+    // =========================
+    // Question builders (ONLY 3 TYPES)
+    // =========================
+    function buildBlank(sentence, keyword) {
+      if (!containsWord(sentence, keyword)) return null;
+      return {
+        type: "blank",
+        question: "Fill in the blank (from your text):\n" + replaceWord(sentence, keyword, "________"),
+        answer: keyword
+      };
+    }
+
+    function buildTF(sentence, keyword, keywords) {
+      // True: exact sentence from text
+      // False: swap keyword with a similar keyword (realistic but wrong)
+      const makeTrue = Math.random() < 0.5;
+
+      if (makeTrue) {
+        return {
+          type: "tf",
+          question: `True or False:\n"${sentence}"`,
+          answer: "True"
+        };
+      }
+
+      const alt = pickSimilarDistractors(keyword, keywords, contextMap, 1)[0]
+        || shuffle(keywords.filter(w => norm(w) !== norm(keyword)))[0]
+        || "something";
+
+      const swapped = containsWord(sentence, keyword)
+        ? replaceWord(sentence, keyword, alt)
+        : (sentence + " (not stated)");
+
+      return {
+        type: "tf",
+        question: `True or False:\n"${swapped}"`,
+        answer: "False"
+      };
+    }
+
+    function buildMCQ(sentence, keyword, keywords) {
+      // Hard mode: distractors are context-similar, so choices look “nearly same meaning”
+      let distractors = pickSimilarDistractors(keyword, keywords, contextMap, 3);
+
+      if (distractors.length < 3) {
+        const extra = shuffle(keywords.filter(w => norm(w) !== norm(keyword))).slice(0, 3 - distractors.length);
+        distractors = distractors.concat(extra);
+      }
+
+      const options = shuffle([keyword, ...distractors]).slice(0, 4);
+
+      const context = sentence
+        ? sentence.slice(0, 150) + (sentence.length > 150 ? "..." : "")
+        : "Choose the most relevant term from the paragraph.";
+
+      return {
+        type: "mcq",
+        question: "MCQ (hard mode, realistic options):\n" + context + "\n\nWhich term best matches the idea?",
+        options,
+        answer: keyword
+      };
+    }
+
+    // =========================
+    // Main generator (strict: MCQ → TF → BLANK)
+    // =========================
+    function generateQuiz() {
+      const text = document.getElementById("quiz-text").value.trim();
+      const count = Math.min(parseInt(document.getElementById("quiz-count").value || "9", 10), 50);
+      const btn = document.getElementById("generate-btn");
+
+      if (text.length < 120) {
+        alert("Please paste a longer paragraph (at least ~120 characters) for realistic questions.");
+        return;
+      }
+
+      const sentences = splitSentences(text);
+      if (sentences.length < 2) {
+        alert("Please paste at least 2 sentences (use . ! ?).");
+        return;
+      }
+
+      const keywords = extractKeywords(text);
+      if (keywords.length < 6) {
+        alert("Not enough key terms found. Paste more informative text.");
+        return;
+      }
+
+      // Build context map once for hard MCQ similarity
+      contextMap = buildContextMap(sentences, keywords);
+
+      btn.disabled = true;
+      btn.innerHTML = '<span class="loader mr-2"></span> Analyzing...';
+
+      setTimeout(() => { btn.innerHTML = '<span class="loader mr-2"></span> Extracting concepts...'; }, 350);
+      setTimeout(() => { btn.innerHTML = '<span class="loader mr-2"></span> Writing questions...'; }, 850);
+
+      setTimeout(() => {
+        quizData = [];
+        userAnswers = {};
+        currentIdx = 0;
+
+        const usedKeywords = new Set();
+        const usedQuestions = new Set();
+        const types = ["mcq", "tf", "blank"]; // strict 3 types
+
+        function add(q) {
+          const k = norm(q.question);
+          if (usedQuestions.has(k)) return false;
+          usedQuestions.add(k);
+          quizData.push(q);
+          return true;
+        }
+
+        let i = 0;
+        let attempts = 0;
+
+        while (i < count && attempts < 700) {
+          attempts++;
+
+          const type = types[i % 3];
+
+          // pick an unused keyword
+          const kw = keywords[Math.floor(Math.random() * Math.min(keywords.length, 80))];
+          const kwKey = norm(kw);
+          if (!kwKey || usedKeywords.has(kwKey)) continue;
+
+          // choose a sentence containing keyword (realistic)
+          const candidates = sentences.filter(s => containsWord(s, kw));
+          const sentence = candidates.length
+            ? candidates[Math.floor(Math.random() * candidates.length)]
+            : sentences[Math.floor(Math.random() * sentences.length)];
+
+          let q = null;
+
+          if (type === "mcq") q = buildMCQ(sentence, kw, keywords);
+          else if (type === "tf") q = buildTF(sentence, kw, keywords);
+          else q = buildBlank(sentence, kw);
+
+          if (!q) continue;
+
+          if (add(q)) {
+            usedKeywords.add(kwKey);
+            i++;
+          }
+        }
+
+        if (quizData.length < 3) {
+          alert("Couldn't generate a good quiz from this text. Try a longer paragraph with clearer key terms.");
+          btn.disabled = false;
+          btn.innerText = "Generate Quiz";
+          return;
+        }
+
+        showView("quiz-view");
+        renderQuestion();
+
+        btn.disabled = false;
+        btn.innerText = "Generate Quiz";
+      }, 1350);
+    }
+
+    // =========================
+    // Quiz UI render
+    // =========================
+    function qTypeLabel(t) {
+      if (t === "mcq") return "MCQ";
+      if (t === "tf") return "True/False";
+      return "Blank";
+    }
+
+    function renderQuestion() {
+      const q = quizData[currentIdx];
+      const container = document.getElementById("question-container");
+      const progress = ((currentIdx + 1) / quizData.length) * 100;
+
+      document.getElementById("progress-bar").style.width = progress + "%";
+      document.getElementById("progress-text").innerText = `Question ${currentIdx + 1} of ${quizData.length}`;
+      document.getElementById("qtype-pill").textContent = qTypeLabel(q.type);
+
+      const prevBtn = document.getElementById("prev-btn");
+      const nextBtn = document.getElementById("next-btn");
+      prevBtn.disabled = currentIdx === 0;
+      nextBtn.innerText = currentIdx === quizData.length - 1 ? "Finish Quiz" : "Next Question →";
+
+      let html = `<h3 class="text-xl font-semibold mb-6 whitespace-pre-line">${q.question}</h3>`;
+
+      if (q.type === "mcq") {
+        html += `<div class="space-y-3">`;
+        q.options.forEach(opt => {
+          const active = userAnswers[currentIdx] === opt
+            ? "bg-blue-50 border-blue-500"
+            : "border-slate-200 hover:bg-slate-50";
+          html += `
+            <button type="button"
+              onclick="saveAnswer(${JSON.stringify(opt)})"
+              class="w-full text-left p-4 rounded-xl border-2 transition-all ${active}">
+              ${opt}
+            </button>`;
+        });
+        html += `</div>`;
+        html += `<p class="text-xs muted mt-4">Tip: All options are similar — choose the best one based on the sentence.</p>`;
+      }
+      else if (q.type === "tf") {
+        html += `<div class="grid grid-cols-2 gap-4">`;
+        ["True", "False"].forEach(opt => {
+          const active = userAnswers[currentIdx] === opt
+            ? "bg-blue-50 border-blue-500"
+            : "border-slate-200 hover:bg-slate-50";
+          html += `
+            <button type="button"
+              onclick="saveAnswer(${JSON.stringify(opt)})"
+              class="p-8 rounded-xl border-2 text-center font-bold transition-all ${active}">
+              ${opt}
+            </button>`;
+        });
+        html += `</div>`;
+        html += `<p class="text-xs muted mt-4">Tip: If the statement is not exactly supported by the paragraph, choose False.</p>`;
+      }
+      else { // blank
+        const val = (userAnswers[currentIdx] || "").replace(/"/g, "&quot;");
+        html += `
+          <input type="text"
+            oninput="saveAnswer(this.value)"
+            value="${val}"
+            class="w-full p-4 rounded-xl border-2 border-slate-200 outline-none focus:border-blue-500"
+            placeholder="Type the missing word..." />`;
+        html += `<p class="text-xs muted mt-4">Tip: Use the original paragraph to find the missing term.</p>`;
+      }
+
+      container.innerHTML = html;
+    }
+
+    function saveAnswer(val) {
+      userAnswers[currentIdx] = val;
+      // For MCQ/TF, re-render to highlight selection
+      if (quizData[currentIdx].type !== "blank") renderQuestion();
+    }
+
+    function nextQuestion() {
+      const q = quizData[currentIdx];
+      const ans = userAnswers[currentIdx];
+
+      if (!ans || norm(ans) === "") {
+        alert("Please answer before continuing.");
+        return;
+      }
+
+      if (currentIdx < quizData.length - 1) {
+        currentIdx++;
+        renderQuestion();
+      } else {
+        showResults();
+      }
+    }
+
+    function previousQuestion() {
+      if (currentIdx > 0) {
+        currentIdx--;
+        renderQuestion();
+      }
+    }
+
+    function restartQuiz() {
+      currentIdx = 0;
+      userAnswers = {};
+      renderQuestion();
+      toast("Quiz restarted");
+    }
+
+    // =========================
+    // Results + Review (user-friendly)
+    // =========================
+    function isCorrect(q, userVal) {
+      const ua = norm(userVal);
+      const ans = norm(q.answer);
+
+      if (q.type === "blank") {
+        // Slightly lenient for blanks
+        return ua && (ua === ans || ua.includes(ans) || ans.includes(ua));
+      }
+      return ua === ans;
+    }
+
+    function showResults() {
+      let score = 0;
+      quizData.forEach((q, i) => {
+        if (isCorrect(q, userAnswers[i])) score++;
+      });
+
+      const p = Math.round((score / quizData.length) * 100);
+      document.getElementById("score-display").innerText = p + "%";
+      document.getElementById("stats-text").innerText = `You got ${score} out of ${quizData.length} correct`;
+
+      showView("result-view");
+    }
+
+    function showReview() {
+      const list = document.getElementById("review-list");
+      list.innerHTML = "";
+
+      quizData.forEach((q, i) => {
+        const ua = userAnswers[i] ?? "";
+        const ok = isCorrect(q, ua);
+
+        const box = document.createElement("div");
+        box.className = "rounded-2xl border border-slate-200 p-5 bg-white";
+
+        const title = document.createElement("div");
+        title.className = "flex items-start justify-between gap-3 mb-3";
+        title.innerHTML = `
+          <div>
+            <div class="text-sm font-semibold text-slate-900">Q${i + 1} • ${qTypeLabel(q.type)}</div>
+            <div class="text-sm muted whitespace-pre-line mt-1">${q.question}</div>
+          </div>
+          <div class="text-sm font-bold ${ok ? "text-emerald-600" : "text-rose-600"}">
+            ${ok ? "Correct" : "Wrong"}
+          </div>
+        `;
+
+        const body = document.createElement("div");
+        body.className = "mt-3 grid sm:grid-cols-2 gap-3 text-sm";
+
+        const your = document.createElement("div");
+        your.className = "rounded-xl border border-slate-200 p-4";
+        your.innerHTML = `<div class="font-semibold mb-1">Your answer</div><div class="muted">${ua || "—"}</div>`;
+
+        const correct = document.createElement("div");
+        correct.className = "rounded-xl border border-slate-200 p-4";
+        correct.innerHTML = `<div class="font-semibold mb-1">Correct answer</div><div class="muted">${q.answer}</div>`;
+
+        body.appendChild(your);
+        body.appendChild(correct);
+
+        box.appendChild(title);
+        box.appendChild(body);
+        list.appendChild(box);
+      });
+
+      document.getElementById("review-view").classList.remove("hidden");
+      toast("Review opened");
+    }
+
+    function hideReview() {
+      document.getElementById("review-view").classList.add("hidden");
+    }
+
+    function resetApp() {
+      document.getElementById("quiz-text").value = "";
+      quizData = [];
+      userAnswers = {};
+      currentIdx = 0;
+      hideReview();
+      showView("setup-view");
+    }
+  </script>
 </body>
 </html>
