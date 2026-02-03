@@ -77,25 +77,27 @@
             </div>
         </div>
     </div>
-
-    <script>
+<script>
   let quizData = [];
   let currentIdx = 0;
   let userAnswers = {};
 
-  // ---------- Helpers ----------
-  function normalize(s) {
-    return (s || "").toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, "").trim();
-  }
+  // ----------- AI-ish utilities -----------
+  const STOP = new Set([
+    "the","a","an","and","or","but","if","then","than","that","this","these","those",
+    "is","am","are","was","were","be","been","being","to","of","in","on","at","by","for","with","as",
+    "it","its","they","their","them","he","she","his","her","you","your","we","our","us",
+    "from","into","over","under","about","after","before","between","during","without","within",
+    "can","could","should","would","may","might","must","will","shall","do","does","did",
+    "also","such","more","most","many","some","any","each","other"
+  ]);
 
-  function unique(arr) {
-    const seen = new Set();
-    return arr.filter(x => {
-      const k = normalize(x);
-      if (!k || seen.has(k)) return false;
-      seen.add(k);
-      return true;
-    });
+  function norm(s) {
+    return (s || "")
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}\s]/gu, "")
+      .replace(/\s+/g, " ")
+      .trim();
   }
 
   function shuffle(arr) {
@@ -105,182 +107,215 @@
       .map(x => x.v);
   }
 
+  function uniqueByNorm(arr) {
+    const seen = new Set();
+    return arr.filter(x => {
+      const k = norm(x);
+      if (!k || seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+  }
+
   function splitSentences(text) {
-    // Split by ., !, ?, newline
-    const parts = text
+    return text
       .replace(/\s+/g, " ")
       .split(/(?<=[.!?])\s+|\n+/)
       .map(s => s.trim())
       .filter(s => s.length >= 25);
-    return parts;
   }
 
-  function pickKeywordCandidates(text) {
-    // Extract "good" words, remove common stopwords
-    const stop = new Set([
-      "the","a","an","and","or","but","if","then","than","that","this","these","those",
-      "is","am","are","was","were","be","been","being","to","of","in","on","at","by","for","with","as",
-      "it","its","they","their","them","he","she","his","her","you","your","we","our","us",
-      "from","into","over","under","about","after","before","between","during","without","within",
-      "can","could","should","would","may","might","must","will","shall","do","does","did"
-    ]);
-
+  function keywordsFromText(text) {
     const words = text
-      .replace(/[^\p{L}\p{N}\s]/gu, " ")
+      .replace(/[^\p{L}\p{N}\s-]/gu, " ")
       .split(/\s+/)
       .map(w => w.trim())
-      .filter(w => w.length >= 5)
-      .filter(w => !stop.has(w.toLowerCase()));
+      .filter(w => w.length >= 5);
 
-    // Prioritize words that appear more than once (more “important”)
+    const cleaned = words.filter(w => !STOP.has(w.toLowerCase()));
+
     const freq = {};
-    for (const w of words) {
+    for (const w of cleaned) {
       const k = w.toLowerCase();
       freq[k] = (freq[k] || 0) + 1;
     }
 
-    const sorted = unique(words).sort((a, b) => (freq[b.toLowerCase()] || 0) - (freq[a.toLowerCase()] || 0));
-    return sorted;
+    // Prefer repeated words, then longer words
+    const uniq = uniqueByNorm(cleaned);
+    uniq.sort((a, b) => {
+      const fa = freq[a.toLowerCase()] || 0;
+      const fb = freq[b.toLowerCase()] || 0;
+      if (fb !== fa) return fb - fa;
+      return b.length - a.length;
+    });
+    return uniq;
   }
 
-  function makeBlankFromSentence(sentence, keyword) {
-    // Replace the first occurrence of the keyword (case-insensitive) with blank
-    const re = new RegExp(`\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
-    if (!re.test(sentence)) return null;
-
-    const blanked = sentence.replace(re, "________");
-    return {
-      type: "blank",
-      question: "Fill in the blank:\n" + blanked,
-      answer: keyword
-    };
+  function containsWord(sentence, word) {
+    const w = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`\\b${w}\\b`, "i").test(sentence);
   }
 
-  function makeMCQ(keyword, pool) {
-    // Build options: correct keyword + 3 distractors
-    const distractors = pool.filter(w => normalize(w) !== normalize(keyword));
-    const picks = shuffle(distractors).slice(0, 3);
-    if (picks.length < 3) return null;
-
-    const options = shuffle([keyword, ...picks]);
-    return {
-      type: "mcq",
-      question: `Which word best fits the context from the text?`,
-      options,
-      answer: keyword
-    };
+  function replaceWord(sentence, word, replacement) {
+    const w = word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return sentence.replace(new RegExp(`\\b${w}\\b`, "i"), replacement);
   }
 
-  function makeTF(sentence, keyword) {
-    // Build a statement. 50% True (real), 50% False (swap keyword with another word)
-    const trueStatement = sentence;
+  // ----------- AI-style question generation -----------
+  function buildQuestions(text, count) {
+    const sentences = splitSentences(text);
+    const keywords = keywordsFromText(text);
 
-    // For false statement: if we can replace keyword with something else
-    const candidates = pickKeywordCandidates(sentence).filter(w => normalize(w) !== normalize(keyword));
-    const replacement = candidates.length ? candidates[Math.floor(Math.random() * candidates.length)] : "something";
+    // A small pool for distractors (looks “AI-picked”)
+    const pool = uniqueByNorm(keywords).slice(0, 40);
 
-    const re = new RegExp(`\\b${keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
-    const canReplace = re.test(sentence);
+    const usedKeywords = new Set();
+    const usedQuestions = new Set();
+    const questions = [];
 
-    const makeFalse = canReplace ? sentence.replace(re, replacement) : (sentence + " (not stated in the text)");
-    const isTrue = Math.random() < 0.5;
+    // helper to add unique question
+    function addQ(q) {
+      const keyQ = norm(q.question);
+      if (usedQuestions.has(keyQ)) return false;
+      usedQuestions.add(keyQ);
+      questions.push(q);
+      return true;
+    }
 
-    return {
-      type: "tf",
-      question: `True or False:\n"${isTrue ? trueStatement : makeFalse}"`,
-      answer: isTrue ? "True" : "False"
-    };
+    // 1) High-quality blanks from real sentences
+    for (const kw of keywords) {
+      if (questions.length >= count) break;
+      const k = norm(kw);
+      if (usedKeywords.has(k)) continue;
+
+      const s = sentences.find(x => containsWord(x, kw));
+      if (!s) continue;
+
+      const blanked = replaceWord(s, kw, "________");
+      const q = {
+        type: "blank",
+        question: "Fill in the blank (AI picked from your text):\n" + blanked,
+        answer: kw
+      };
+      if (addQ(q)) usedKeywords.add(k);
+    }
+
+    // 2) Smart MCQ: asks for best keyword in context
+    for (const kw of keywords) {
+      if (questions.length >= count) break;
+      const k = norm(kw);
+      if (usedKeywords.has(k)) continue;
+
+      const s = sentences.find(x => containsWord(x, kw)) || sentences[Math.floor(Math.random() * sentences.length)];
+      const hint = s ? s.slice(0, 110) + (s.length > 110 ? "..." : "") : "";
+
+      const distractors = pool.filter(w => norm(w) !== k);
+      const picks = shuffle(distractors).slice(0, 3);
+      if (picks.length < 3) continue;
+
+      const options = shuffle([kw, ...picks]);
+      const q = {
+        type: "mcq",
+        question: "AI Question (choose the best keyword for this context):\n" + hint,
+        options,
+        answer: kw
+      };
+      if (addQ(q)) usedKeywords.add(k);
+    }
+
+    // 3) Better True/False: based on real sentence or altered sentence
+    for (const kw of keywords) {
+      if (questions.length >= count) break;
+      const k = norm(kw);
+      if (usedKeywords.has(k)) continue;
+
+      const s = sentences.find(x => containsWord(x, kw));
+      if (!s) continue;
+
+      const wantTrue = Math.random() < 0.5;
+      let statement = s;
+      let answer = "True";
+
+      if (!wantTrue) {
+        // replace keyword with another keyword → makes it false but still realistic
+        const alt = pool.find(w => norm(w) !== k && w.length >= 5);
+        if (alt) {
+          statement = replaceWord(s, kw, alt);
+          answer = "False";
+        }
+      }
+
+      const q = {
+        type: "tf",
+        question: `True or False (AI checked your text):\n"${statement}"`,
+        answer
+      };
+      if (addQ(q)) usedKeywords.add(k);
+    }
+
+    // If not enough questions, fill with remaining MCQs
+    while (questions.length < count && pool.length >= 4) {
+      const kw = pool[Math.floor(Math.random() * pool.length)];
+      const k = norm(kw);
+      if (usedKeywords.has(k)) continue;
+
+      const distractors = pool.filter(w => norm(w) !== k);
+      const picks = shuffle(distractors).slice(0, 3);
+      const options = shuffle([kw, ...picks]);
+
+      const q = {
+        type: "mcq",
+        question: "AI Suggestion: pick the most relevant term from your paragraph.",
+        options,
+        answer: kw
+      };
+      if (addQ(q)) usedKeywords.add(k);
+    }
+
+    return questions.slice(0, count);
   }
 
-  // ---------- Main ----------
+  // ----------- UI logic -----------
   function generateQuiz() {
     const text = document.getElementById("quiz-text").value.trim();
     const count = Math.min(parseInt(document.getElementById("quiz-count").value || "5", 10), 50);
     const btn = document.getElementById("generate-btn");
 
     if (text.length < 80) {
-      alert("Please enter a longer paragraph (at least ~80 characters) so the quiz can be meaningful.");
-      return;
-    }
-
-    const sentences = splitSentences(text);
-    if (sentences.length < 2) {
-      alert("Please paste at least 2 meaningful sentences (use . ! ?).");
-      return;
-    }
-
-    const keywords = pickKeywordCandidates(text);
-    if (keywords.length < 5) {
-      alert("Not enough key words found. Please paste richer content (more unique terms).");
+      alert("Please paste a longer paragraph (at least ~80 characters).");
       return;
     }
 
     btn.disabled = true;
-    btn.innerHTML = '<span class="loader mr-2"></span> Generating...';
+    btn.innerHTML = '<span class="loader mr-2"></span> AI is analyzing your text...';
+
+    // AI-feel: staged “thinking”
+    setTimeout(() => {
+      btn.innerHTML = '<span class="loader mr-2"></span> Extracting key concepts...';
+    }, 400);
 
     setTimeout(() => {
-      quizData = [];
-      userAnswers = {};
-      currentIdx = 0;
+      btn.innerHTML = '<span class="loader mr-2"></span> Writing questions...';
+    }, 900);
 
-      // We ensure no repeated target word to avoid repeated quiz
-      const used = new Set();
+    setTimeout(() => {
+      quizData = buildQuestions(text, count);
 
-      // Build a small word pool for MCQ distractors
-      const wordPool = unique(keywords).slice(0, 30);
-
-      // Try to create up to `count` questions, with fallbacks
-      let attempts = 0;
-      while (quizData.length < count && attempts < 400) {
-        attempts++;
-
-        // pick a keyword not used yet
-        const kw = keywords[Math.floor(Math.random() * Math.min(keywords.length, 50))];
-        const key = normalize(kw);
-        if (!key || used.has(key)) continue;
-
-        // pick a sentence that includes that keyword (for meaningful blanks/TF)
-        const candidates = sentences.filter(s => new RegExp(`\\b${kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(s));
-        const sentence = candidates.length ? candidates[Math.floor(Math.random() * candidates.length)] : null;
-
-        // choose type but keep it balanced
-        const types = ["mcq", "tf", "blank"];
-        const type = types[Math.floor(Math.random() * types.length)];
-
-        let qObj = null;
-
-        if (type === "blank" && sentence) {
-          qObj = makeBlankFromSentence(sentence, kw);
-        } else if (type === "tf" && sentence) {
-          qObj = makeTF(sentence, kw);
-        } else {
-          // MCQ fallback or if sentence missing
-          qObj = makeMCQ(kw, wordPool);
-        }
-
-        if (!qObj) continue;
-
-        // Avoid duplicate questions by checking normalized question text
-        const qKey = normalize(qObj.question);
-        if (quizData.some(q => normalize(q.question) === qKey)) continue;
-
-        used.add(key);
-        quizData.push(qObj);
-      }
-
-      if (quizData.length === 0) {
-        alert("Couldn't generate a quiz from this text. Please paste more descriptive content.");
+      if (!quizData.length) {
+        alert("AI couldn't generate meaningful questions from this text. Try a more descriptive paragraph.");
         btn.disabled = false;
         btn.innerText = "Generate Quiz";
         return;
       }
 
+      currentIdx = 0;
+      userAnswers = {};
       showView("quiz-view");
       renderQuestion();
 
       btn.disabled = false;
       btn.innerText = "Generate Quiz";
-    }, 600);
+    }, 1400);
   }
 
   function renderQuestion() {
@@ -294,7 +329,6 @@
 
     const prevBtn = document.getElementById("prev-btn");
     const nextBtn = document.getElementById("next-btn");
-
     prevBtn.disabled = currentIdx === 0;
     nextBtn.innerText = currentIdx === quizData.length - 1 ? "Finish Quiz" : "Next Question →";
 
@@ -309,7 +343,7 @@
         html += `
           <button type="button"
             onclick="saveAnswer(${JSON.stringify(opt)})"
-            class="w-full text-left p-4 rounded-xl border-2 cursor-pointer transition-all ${active}">
+            class="w-full text-left p-4 rounded-xl border-2 transition-all ${active}">
             ${opt}
           </button>`;
       });
@@ -323,7 +357,7 @@
         html += `
           <button type="button"
             onclick="saveAnswer(${JSON.stringify(opt)})"
-            class="p-8 rounded-xl border-2 cursor-pointer text-center font-bold transition-all ${active}">
+            class="p-8 rounded-xl border-2 text-center font-bold transition-all ${active}">
             ${opt}
           </button>`;
       });
@@ -346,7 +380,7 @@
   }
 
   function nextQuestion() {
-    if (!userAnswers[currentIdx] || normalize(userAnswers[currentIdx]) === "") {
+    if (!userAnswers[currentIdx] || norm(userAnswers[currentIdx]) === "") {
       alert("Please answer before continuing.");
       return;
     }
@@ -367,11 +401,13 @@
 
   function showResults() {
     let score = 0;
+
     quizData.forEach((q, i) => {
-      const ua = normalize(userAnswers[i]);
-      const ans = normalize(q.answer);
+      const ua = norm(userAnswers[i]);
+      const ans = norm(q.answer);
+
       if (q.type === "blank") {
-        // allow partial match for blanks
+        // AI-like lenient grading for blanks
         if (ua && (ua === ans || ua.includes(ans) || ans.includes(ua))) score++;
       } else {
         if (ua === ans) score++;
